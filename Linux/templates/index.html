@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brightness Control</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js" integrity="sha384-ruOAN+Th/7wnxvZz/L0YYj/U2kdyC1M9d8QkS2Z4s1N6dtJpHqcEflNqNU1uYBWG" crossorigin="anonymous"></script>
+    <style>
+        .slider {
+            width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Brightness Control</h1>
+
+    <label for="device1">Device 1:</label>
+    <select id="device1">
+        {% for device in devices %}
+            <option value="{{ device }}">{{ device }}</option>
+        {% endfor %}
+    </select>
+    <br>
+    <label for="brightness1">Brightness (Device 1):</label>
+    <input type="range" id="brightness1" class="slider" min="10" max="100" value="100">
+    <span id="brightness1Value">100</span>
+
+    <br><br>
+
+    <label for="device2">Device 2:</label>
+    <select id="device2">
+        {% for device in devices %}
+            <option value="{{ device }}">{{ device }}</option>
+        {% endfor %}
+    </select>
+    <br>
+    <label for="brightness2">Brightness (Device 2):</label>
+    <input type="range" id="brightness2" class="slider" min="10" max="100" value="100">
+    <span id="brightness2Value">100</span>
+
+    <script>
+        const socket = io("http://localhost:5000");
+
+        // Update brightness slider values and send the new value to the server
+        function updateBrightness(device, sliderId, value) {
+            fetch("/update_brightness", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: `device=${device}&brightness=${value}`
+            })
+            .then(response => response.json())
+            .then(data => console.log(data))
+            .catch(error => console.log(error));
+        }
+
+        document.getElementById("brightness1").addEventListener("input", function () {
+            const value = this.value;
+            document.getElementById("brightness1Value").textContent = value;
+            const device = document.getElementById("device1").value;
+            updateBrightness(device, "brightness1", value);
+        });
+
+        document.getElementById("brightness2").addEventListener("input", function () {
+            const value = this.value;
+            document.getElementById("brightness2Value").textContent = value;
+            const device = document.getElementById("device2").value;
+            updateBrightness(device, "brightness2", value);
+        });
+
+        // Get current brightness on page load
+        window.onload = function () {
+            fetch("/get_brightness")
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById("brightness1").value = data.device1;
+                    document.getElementById("brightness2").value = data.device2;
+                    document.getElementById("brightness1Value").textContent = data.device1;
+                    document.getElementById("brightness2Value").textContent = data.device2;
+                })
+                .catch(error => console.log(error));
+        };
+
+        // Listen for brightness updates from the server
+        socket.on("brightness_update", (data) => {
+            if (data.device1) {
+                document.getElementById("brightness1").value = data.device1;
+                document.getElementById("brightness1Value").textContent = data.device1;
+            }
+            if (data.device2) {
+                document.getElementById("brightness2").value = data.device2;
+                document.getElementById("brightness2Value").textContent = data.device2;
+            }
+        });
+    </script>
+</body>
+</html>

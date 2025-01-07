@@ -1,34 +1,30 @@
-# gui.py
-import asyncio
-import threading
 from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QSlider, QPushButton, QComboBox
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 import os
 import json
 from setup import connected_devices
 from changeBrightness import update_screen_brightness
-import requests
-import time
-import websockets
+
 
 configFile = "config.conf"
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.websocket_thread = threading.Thread(target=self.start_websocket_listener, daemon=True)
-        self.websocket_thread.start()
-
         # Instance variables
         self.currentValue1 = 100
         self.currentValue2 = 100
+        self.currentValue3 = 100
         self.usrDevice1 = None
         self.usrDevice2 = None
+        self.usrDevice3 = None
 
         self.setWindowTitle("Brightness")
         self.setGeometry(100, 100, 500, 500)
 
+        # Create central widget and layout
         central_widget = QWidget()
         main_layout = QVBoxLayout()
 
@@ -50,7 +46,7 @@ class MainWindow(QMainWindow):
         dropdown_layout.addWidget(QLabel("Device 1:"))
         dropdown_layout.addWidget(self.usrDevice1_dropdown)
 
-        if len(connected_devices) > 1:  # Add second dropdown if multiple devices exist
+        if len(connected_devices) > 1:  # Add second dropdown if two devices exist
             self.usrDevice2_dropdown = QComboBox()
             self.usrDevice2_dropdown.addItem("Select Device 2")
             self.usrDevice2_dropdown.addItems(connected_devices)
@@ -59,11 +55,21 @@ class MainWindow(QMainWindow):
             dropdown_layout.addWidget(QLabel("Device 2:"))
             dropdown_layout.addWidget(self.usrDevice2_dropdown)
 
+        if len(connected_devices) > 2:  # Add third dropdown if two devices exist
+            self.usrDevice3_dropdown = QComboBox()
+            self.usrDevice3_dropdown.addItem("Select Device 3")
+            self.usrDevice3_dropdown.addItems(connected_devices)
+            self.usrDevice3_dropdown.currentTextChanged.connect(self.usr_device_3_changed)
+
+            dropdown_layout.addWidget(QLabel("Device 3:"))
+            dropdown_layout.addWidget(self.usrDevice3_dropdown)
+
         main_layout.addLayout(dropdown_layout)
 
         # Layout for sliders
         sliders_layout = QHBoxLayout()
 
+        # 1st Slider
         slider1_layout = QVBoxLayout()
         self.sliderLabel1 = QLabel(f"Brightness (Device 1: {self.usrDevice1 or 'None'})")
         self.sliderLabel1.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -97,6 +103,23 @@ class MainWindow(QMainWindow):
 
             sliders_layout.addLayout(slider2_layout)
 
+        if len(connected_devices) > 2:  # Add third slider if multiple devices exist
+            slider3_layout = QVBoxLayout()
+            self.sliderLabel3 = QLabel(f"Brightness (Device 3: None)")
+            self.sliderLabel3.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            slider3_layout.addWidget(self.sliderLabel3, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+            self.brightnessSlider3 = QSlider(Qt.Orientation.Vertical)
+            self.brightnessSlider3.setMinimum(10)
+            self.brightnessSlider3.setMaximum(100)
+            self.brightnessSlider3.setValue(100)
+            self.brightnessSlider3.setTickPosition(QSlider.TickPosition.TicksBelow)
+            self.brightnessSlider3.setTickInterval(10)
+            self.brightnessSlider3.valueChanged.connect(self.update_slider3)
+            slider3_layout.addWidget(self.brightnessSlider3, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+            sliders_layout.addLayout(slider3_layout)
+
         main_layout.addLayout(sliders_layout)
 
         # Reset button
@@ -109,93 +132,120 @@ class MainWindow(QMainWindow):
 
         self.load_config()
 
-        # Timer to fetch brightness from web server
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.fetch_brightness_from_web)
-        self.timer.start(1000)  # Update every second
+    def usr_device_1_changed(self, device):
+        if device != "Select Device 1":
+            self.usrDevice1 = device
+            self.sliderLabel1.setText(f"Brightness (Device 1: {self.usrDevice1})")
+            # Remove placeholder option after a device is selected
+            index = self.usrDevice1_dropdown.findText("Select Device 1")
+            if index != -1:
+                self.usrDevice1_dropdown.removeItem(index)
+            print("Device 1: " + device)
+            self.save_config()
+        else:
+            self.usrDevice1 = None
 
-    def usr_device_1_changed(self, new_device):
-        self.usrDevice1 = new_device
-        self.sliderLabel1.setText(f"Brightness (Device 1: {self.usrDevice1})")
-        self.update_device_brightness(self.usrDevice1, self.currentValue1)
+    def usr_device_2_changed(self, device):
+        if device != "Select Device 2":
+            self.usrDevice2 = device
+            self.sliderLabel2.setText(f"Brightness (Device 2: {self.usrDevice2})")
+            # Remove placeholder option after a device is selected
+            index = self.usrDevice2_dropdown.findText("Select Device 2")
+            if index != -1:
+                self.usrDevice2_dropdown.removeItem(index)
+            print("Device 2: " + device)
+            self.save_config()
+        else:
+            self.usrDevice2 = None
 
-    def usr_device_2_changed(self, new_device):
-        self.usrDevice2 = new_device
-        self.sliderLabel2.setText(f"Brightness (Device 2: {self.usrDevice2})")
-        self.update_device_brightness(self.usrDevice2, self.currentValue2)
+    def usr_device_3_changed(self, device):
+        if device != "Select Device 3":
+            self.usrDevice3 = device
+            self.sliderLabel3.setText(f"Brightness (Device 3: {self.usrDevice3})")
+            # Remove placeholder option after a device is selected
+            index = self.usrDevice3_dropdown.findText("Select Device 3")
+            if index != -1:
+                self.usrDevice3_dropdown.removeItem(index)
+            print("Device 3: " + device)
+            self.save_config()
+        else:
+            self.usrDevice3 = None
 
-    def update_slider1(self):
-        self.currentValue1 = self.brightnessSlider1.value()
-        self.update_device_brightness(self.usrDevice1, self.currentValue1)
+    def update_slider1(self, prevValue1):
+        self.sliderLabel1.setText(f"Slider Value: {prevValue1}")
+        if self.currentValue1 != prevValue1:
+            self.currentValue1 = prevValue1  # Update the instance variable
+            print(f"Slider updated to: {prevValue1}")
+            if self.usrDevice1: # To make sure its not none!
+                update_screen_brightness(self.usrDevice1, self.currentValue1)
 
-        # Sync brightness to the server
-        self.sync_brightness_to_server("device1", self.currentValue1)
+    def update_slider2(self, prevValue2):
+        self.sliderLabel2.setText(f"Slider Value: {prevValue2}")
+        if self.currentValue2 != prevValue2:
+            self.currentValue2 = prevValue2  # Update the instance variable
+            print(f"Slider updated to: {prevValue2}")
+            if self.usrDevice2: # To make sure its not none!
+                update_screen_brightness(self.usrDevice2, self.currentValue2)
 
-    def update_slider2(self):
-        self.currentValue2 = self.brightnessSlider2.value()
-        self.update_device_brightness(self.usrDevice2, self.currentValue2)
-
-        # Sync brightness to the server
-        self.sync_brightness_to_server("device2", self.currentValue2)
-
-    def update_device_brightness(self, device, value):
-        if device:
-            update_screen_brightness(device, value)
+    def update_slider3(self, prevValue3):
+        self.sliderLabel3.setText(f"Slider Value: {prevValue3}")
+        if self.currentValue3 != prevValue3:
+            self.currentValue3 = prevValue3  # Update the instance variable
+            print(f"Slider updated to: {prevValue3}")
+            if self.usrDevice3: # To make sure its not none!
+                update_screen_brightness(self.usrDevice3, self.currentValue3)
 
     def reset_button_click(self):
         self.brightnessSlider1.setValue(100)
-        if self.usrDevice1:
-            self.update_device_brightness(self.usrDevice1, 100)
+        self.brightnessSlider2.setValue(100)
+        self.brightnessSlider3.setValue(100)
+        print("Brightness reset to 100")
 
-        if self.usrDevice2:
-            self.brightnessSlider2.setValue(100)
-            self.update_device_brightness(self.usrDevice2, 100)
-
-    def fetch_brightness_from_web(self):
-        retries = 5
-        for _ in range(retries):
-            try:
-                response = requests.get("http://localhost:5000/get_brightness")
-                if response.status_code == 200:
-                    data = response.json()
-                    self.brightnessSlider1.setValue(data["device1"])
-                    self.brightnessSlider2.setValue(data["device2"])
-                    return
-            except requests.exceptions.RequestException as e:
-                print(f"Error fetching brightness from web: {e}")
-            time.sleep(1)  # Retry after a brief delay
+    def save_config(self):
+        config = {
+            "device1": self.usrDevice1,
+            "device2": self.usrDevice2,
+            "device3": self.usrDevice3
+        }
+        with open(configFile, "w") as file:
+            json.dump(config, file)
 
     def load_config(self):
         if os.path.exists(configFile):
-            with open(configFile, "r") as f:
-                config = json.load(f)
-                if 'usrDevice1' in config:
-                    self.usrDevice1 = config['usrDevice1']
+            with open(configFile, "r") as file:
+                config = json.load(file)
+
+                # Count devices in the configuration
+                config_devices = [config.get("device1"), config.get("device2"), config.get("device3")]
+                config_devices = [d for d in config_devices if d is not None]  # Filter out None values
+
+                # Reset config if fewer connected devices than config devices
+                if len(connected_devices) < len(config_devices):
+                    print("Fewer devices connected than in the config. Resetting config.")
+                    self.reset_config()
+                    return  # Skip loading the config for this launch
+
+                # Load config if valid
+                self.usrDevice1 = config.get("device1")
+                self.usrDevice2 = config.get("device2")
+                self.usrDevice3 = config.get("device3")
+
+                if self.usrDevice1 in connected_devices:
                     self.usrDevice1_dropdown.setCurrentText(self.usrDevice1)
-                if 'usrDevice2' in config:
-                    self.usrDevice2 = config['usrDevice2']
+                    self.sliderLabel1.setText(f"Brightness (Device 1: {self.usrDevice1})")
+
+                if self.usrDevice2 in connected_devices:
                     self.usrDevice2_dropdown.setCurrentText(self.usrDevice2)
+                    self.sliderLabel2.setText(f"Brightness (Device 2: {self.usrDevice2})")
 
-    async def websocket_listener(self):
-        uri = "ws://localhost:5000/socket.io/"
-        async with websockets.connect(uri) as websocket:
-            while True:
-                try:
-                    message = await websocket.recv()
-                    data = json.loads(message)
-                    # Update sliders based on data from the server
-                    self.brightnessSlider1.setValue(data.get("device1", 100))
-                    if self.usrDevice2:
-                        self.brightnessSlider2.setValue(data.get("device2", 100))
-                except Exception as e:
-                    print(f"WebSocket error: {e}")
-                    break
+                if self.usrDevice3 in connected_devices:
+                    self.usrDevice3_dropdown.setCurrentText(self.usrDevice3)
+                    self.sliderLabel3.setText(f"Brightness (Device 3: {self.usrDevice3})")
 
-    def start_websocket_listener(self):
-        asyncio.run(self.websocket_listener())
+    def reset_config(self):
+        # Clear the configuration file
+        with open(configFile, "w") as file:
+            json.dump({}, file)
+        print("Configuration has been reset.")
 
-    def sync_brightness_to_server(self, device, value):
-        try:
-            requests.post("http://localhost:5000/update_brightness", data={"device": device, "brightness": value})
-        except requests.exceptions.RequestException as e:
-            print(f"Error syncing with server: {e}")
+
